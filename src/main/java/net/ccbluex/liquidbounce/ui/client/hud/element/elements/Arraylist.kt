@@ -16,9 +16,6 @@ import net.ccbluex.liquidbounce.ui.client.hud.element.Side
 import net.ccbluex.liquidbounce.ui.client.hud.element.Side.Horizontal
 import net.ccbluex.liquidbounce.ui.client.hud.element.Side.Vertical
 import net.ccbluex.liquidbounce.ui.font.Fonts
-import net.ccbluex.liquidbounce.utils.render.AnimationUtils
-import net.ccbluex.liquidbounce.utils.render.ColorSettingsFloat
-import net.ccbluex.liquidbounce.utils.render.ColorSettingsInteger
 import net.ccbluex.liquidbounce.utils.render.RenderUtils.deltaTime
 import net.ccbluex.liquidbounce.utils.render.RenderUtils.drawRect
 import net.ccbluex.liquidbounce.utils.render.RenderUtils.drawRoundedRect
@@ -27,11 +24,14 @@ import net.ccbluex.liquidbounce.utils.render.shader.shaders.GradientFontShader
 import net.ccbluex.liquidbounce.utils.render.shader.shaders.GradientShader
 import net.ccbluex.liquidbounce.utils.render.shader.shaders.RainbowFontShader
 import net.ccbluex.liquidbounce.utils.render.shader.shaders.RainbowShader
-import net.ccbluex.liquidbounce.utils.render.toColorArray
 import net.ccbluex.liquidbounce.config.*
 import net.ccbluex.liquidbounce.ui.font.AWTFontRenderer.Companion.assumeNonVolatile
+import net.ccbluex.liquidbounce.utils.render.*
+import net.ccbluex.liquidbounce.utils.render.RenderUtils.quickDrawRect
 import net.minecraft.client.renderer.GlStateManager.resetColor
+import org.lwjgl.opengl.GL11.*
 import java.awt.Color
+import kotlin.math.min
 
 /**
  * CustomHUD Arraylist element
@@ -43,6 +43,9 @@ class Arraylist(
     x: Double = 1.0, y: Double = 2.0, scale: Float = 1F,
     side: Side = Side(Horizontal.RIGHT, Vertical.UP),
 ) : Element(x, y, scale, side) {
+
+    private val blur by BoolValue("Blur", false)
+    private val blurStrength by FloatValue("Blur-Strength", 20F, 1F..50F) { blur }
 
     private val textColorMode by choices("Text-Color", arrayOf("Custom", "Random", "Rainbow", "Gradient"), "Custom")
     private val textColors = ColorSettingsInteger(this, "Text", withAlpha = false)
@@ -252,6 +255,44 @@ class Arraylist(
                 when (side.horizontal) {
                     Horizontal.RIGHT, Horizontal.MIDDLE -> {
                         val xPos = -module.slide - 2
+
+                        if (blur) {
+                            glPushAttrib(GL_ALL_ATTRIB_BITS)
+                            glPushMatrix()
+
+                            glEnable(GL_BLEND)
+                            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+                            glTranslated(-renderX, -renderY, 0.0)
+
+                            val floatX = renderX.toFloat()
+                            val floatY = renderY.toFloat()
+                            var yP = 0F
+                            var xP = 0F
+
+                            modules.forEachIndexed { _, _ ->
+                                val width = font.getStringWidth(getDisplayString(module)) + 20F
+                                yP += yPos + textHeight + space
+                                xP = min(xP, -width)
+                            }
+
+                            BlurUtils.blur(floatX, floatY, floatX + xP, floatY + yP, blurStrength, false) {
+                                modules.forEachIndexed { _, _ ->
+                                    quickDrawRect(
+                                        floatX + xPos - if (rectMode == "Right") 5 else 2,
+                                        floatY + yPos,
+                                        floatX + if (rectMode == "Right") -3F else 0F,
+                                        floatY + yPos + textHeight + space
+                                    )
+                                }
+                            }
+
+                            glTranslated(renderX, renderY, 0.0)
+
+                            glDisable(GL_BLEND)
+                            glPopMatrix()
+                            glPopAttrib()
+                        }
 
                         GradientShader.begin(
                             !markAsInactive && backgroundMode == "Gradient",
